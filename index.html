@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Cestujeme vláčikom</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Segoe UI", "Noto Sans", system-ui, -apple-system, sans-serif;
+    color: #1e3a5f;
+    background: #f4fafc;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+  .app {
+    height: 100dvh;
+    padding: 1vh 2vw;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6vh;
+  }
+  .sentence {
+    font-size: 4.2vh;
+    font-weight: 700;
+    margin: 0;
+  }
+  .train-wrap {
+    flex: 0 0 auto;
+    width: min(78vw, 112vh);
+  }
+  .train-wrap svg { width: 100%; height: auto; display: block; }
+  .feedback {
+    flex: 0 0 auto;
+    height: 8.5vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .feedback .smiley { width: 7.5vh; height: 7.5vh; display: none; }
+  .feedback .smiley svg { width: 100%; height: 100%; }
+  table {
+    border-collapse: collapse;
+    flex: 0 0 auto;
+  }
+  td, th {
+    width: 16vh;
+    height: 7.4vh;
+    border: 0.4vh solid #2c6e9e;
+    text-align: center;
+    vertical-align: middle;
+    padding: 0.3vh;
+  }
+  td.corner { border: none; background: transparent; }
+  td.sym, td.letterS, th.letterS {
+    background: #ffffff;
+    font-size: 3.6vh;
+    font-weight: 700;
+  }
+  td.sym svg { height: 6.6vh; width: auto; }
+  th.wagcolor { border: 0.4vh solid #1e3a5f; }
+  td.cell {
+    background: #fdf6cf;
+    cursor: pointer;
+  }
+  td.cell.locked { cursor: default; }
+  td.cell.wrong {
+    background: #fdf6cf;
+    border: 0.55vh solid #e53935;
+  }
+  .sticks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8vh 0.9vh;
+    justify-content: center;
+    align-content: center;
+    max-width: calc(5 * (1.05vh + 0.9vh));
+    margin: 0 auto;
+    height: 100%;
+  }
+  .stick {
+    width: 1.05vh;
+    height: 5.2vh;
+    border-radius: 0.5vh;
+    background: #37474f;
+    flex: 0 0 auto;
+  }
+  .bottom {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 3vw;
+    height: 10vh;
+  }
+  #btn-main {
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 3.6vh;
+    color: #ffffff;
+    background: #2e9e4f;
+    border: 0.45vh solid #1c6b34;
+    border-radius: 1.6vh;
+    box-shadow: 0 0.7vh 0 #1c6b34;
+    cursor: pointer;
+    padding: 0 4vw;
+    height: 100%;
+    max-height: 8vh;
+  }
+  #btn-main:active:not(:disabled) { transform: translateY(0.45vh); box-shadow: 0 0.25vh 0 #1c6b34; }
+  #btn-main:focus-visible { outline: 0.4vh solid #f5b940; outline-offset: 0.3vh; }
+  #btn-main:disabled { opacity: 0.55; cursor: default; }
+  .hint-line { font-size: 2.2vh; color: #54718c; flex: 0 0 auto; }
+</style>
+</head>
+<body>
+<div class="app">
+  <p class="sentence" id="sentence"></p>
+  <div class="train-wrap" id="train"></div>
+  <div class="feedback"><div class="smiley" id="smiley"></div></div>
+  <table id="tab"></table>
+  <div class="bottom">
+    <button id="btn-main" type="button">ŠŤASTNÚ CESTU</button>
+  </div>
+  <div class="hint-line">Ťukni a pridaj paličku. Dvakrát ťukni a vymaž políčko.</div>
+</div>
+
+<script>
+"use strict";
+
+const DESTS = ["BRATISLAVY", "PREŠOVA", "ŽILINY", "PIEŠŤAN", "HUMENNÉHO",
+               "BARDEJOVA", "TRENČÍNA", "KYSAKU", "SPIŠSKEJ NOVEJ VSI", "PRAHY"];
+const WAGON_COLORS = ["#7cb342", "#4fa3d1", "#e05252", "#f29a3a",
+                      "#9575cd", "#26a69a", "#ec6b9c", "#5c6bc0"];
+const KEY_ORDER = ["g1", "g2", "gS", "b1", "b2", "bS", "s1", "s2"];
+const SMILE_HAPPY =
+  '<svg viewBox="0 0 100 100">' +
+  '<circle cx="50" cy="50" r="46" fill="#ffd93d" stroke="#e0a800" stroke-width="4"/>' +
+  '<circle cx="34" cy="40" r="6" fill="#5d4037"/><circle cx="66" cy="40" r="6" fill="#5d4037"/>' +
+  '<path d="M28 60 Q50 80 72 60" fill="none" stroke="#5d4037" stroke-width="6" stroke-linecap="round"/>' +
+  '</svg>';
+const SMILE_SAD =
+  '<svg viewBox="0 0 100 100">' +
+  '<circle cx="50" cy="50" r="46" fill="#ffd93d" stroke="#e0a800" stroke-width="4"/>' +
+  '<circle cx="34" cy="42" r="6" fill="#5d4037"/><circle cx="66" cy="42" r="6" fill="#5d4037"/>' +
+  '<path d="M28 72 Q50 54 72 72" fill="none" stroke="#5d4037" stroke-width="6" stroke-linecap="round"/>' +
+  '</svg>';
+
+const GIRL_DRESS = ["#e05a7a", "#f2b53a", "#8e6bc1", "#e07b3a"];
+const BOY_SHIRT = ["#4a7bc1", "#4a9e5f", "#c1554f", "#5c6bc0"];
+const SKIN = "#fde3c8";
+const HAIR = "#6d4c41";
+
+/* Postavičky – dievča (trojuholníková sukňa) a chlapec (rovný trup, dve nohavice). */
+function girlSVG(scale) {
+  const s = scale;
+  return '<g>' +
+    '<line x1="' + (32 - 6 * s) + '" y1="' + (74 * s) + '" x2="' + (32 - 7 * s) + '" y2="' + (96 * s) + '" stroke="' + SKIN + '" stroke-width="' + (5 * s) + '" stroke-linecap="round"/>' +
+    '<line x1="' + (32 + 6 * s) + '" y1="' + (74 * s) + '" x2="' + (32 + 7 * s) + '" y2="' + (96 * s) + '" stroke="' + SKIN + '" stroke-width="' + (5 * s) + '" stroke-linecap="round"/>' +
+    '<polygon points="32,' + (30 * s) + ' ' + (32 - 17 * s) + ',' + (76 * s) + ' ' + (32 + 17 * s) + ',' + (76 * s) + '" fill="DRESS" stroke="DRESSD" stroke-width="' + (2.5 * s) + '" stroke-linejoin="round"/>' +
+    '<circle cx="32" cy="' + (18 * s) + '" r="' + (13 * s) + '" fill="' + SKIN + '" stroke="#d9a066" stroke-width="' + (2 * s) + '"/>' +
+    '<path d="M' + (32 - 13 * s) + ' ' + (16 * s) + ' A ' + (13 * s) + ' ' + (13 * s) + ' 0 0 1 ' + (32 + 13 * s) + ' ' + (16 * s) + ' L ' + (32 + 13 * s) + ' ' + (12 * s) + ' A ' + (13 * s) + ' ' + (13 * s) + ' 0 0 0 ' + (32 - 13 * s) + ' ' + (12 * s) + ' Z" fill="' + HAIR + '"/>' +
+    '<circle cx="' + (32 - 4.5 * s) + '" cy="' + (19 * s) + '" r="' + (1.7 * s) + '" fill="#37474f"/>' +
+    '<circle cx="' + (32 + 4.5 * s) + '" cy="' + (19 * s) + '" r="' + (1.7 * s) + '" fill="#37474f"/>' +
+    '<path d="M' + (32 - 4 * s) + ' ' + (24 * s) + ' Q 32 ' + (27.5 * s) + ' ' + (32 + 4 * s) + ' ' + (24 * s) + '" fill="none" stroke="#37474f" stroke-width="' + (1.6 * s) + '" stroke-linecap="round"/>' +
+    '</g>';
+}
+function boySVG(scale) {
+  const s = scale;
+  return '<g>' +
+    '<rect x="' + (32 - 10 * s) + '" y="' + (60 * s) + '" width="' + (8 * s) + '" height="' + (36 * s) + '" rx="' + (3 * s) + '" fill="#37474f"/>' +
+    '<rect x="' + (32 + 2 * s) + '" y="' + (60 * s) + '" width="' + (8 * s) + '" height="' + (36 * s) + '" rx="' + (3 * s) + '" fill="#37474f"/>' +
+    '<rect x="' + (32 - 12 * s) + '" y="' + (32 * s) + '" width="' + (24 * s) + '" height="' + (32 * s) + '" rx="' + (6 * s) + '" fill="SHIRT" stroke="SHIRTD" stroke-width="' + (2 * s) + '"/>' +
+    '<circle cx="32" cy="' + (18 * s) + '" r="' + (13 * s) + '" fill="' + SKIN + '" stroke="#d9a066" stroke-width="' + (2 * s) + '"/>' +
+    '<path d="M' + (32 - 13 * s) + ' ' + (15 * s) + ' A ' + (13 * s) + ' ' + (13 * s) + ' 0 0 1 ' + (32 + 13 * s) + ' ' + (15 * s) + ' L ' + (32 + 13 * s) + ' ' + (11 * s) + ' A ' + (13 * s) + ' ' + (13 * s) + ' 0 0 0 ' + (32 - 13 * s) + ' ' + (11 * s) + ' Z" fill="' + HAIR + '"/>' +
+    '<circle cx="' + (32 - 4.5 * s) + '" cy="' + (19 * s) + '" r="' + (1.7 * s) + '" fill="#37474f"/>' +
+    '<circle cx="' + (32 + 4.5 * s) + '" cy="' + (19 * s) + '" r="' + (1.7 * s) + '" fill="#37474f"/>' +
+    '<path d="M' + (32 - 4 * s) + ' ' + (24 * s) + ' Q 32 ' + (27.5 * s) + ' ' + (32 + 4 * s) + ' ' + (24 * s) + '" fill="none" stroke="#37474f" stroke-width="' + (1.6 * s) + '" stroke-linecap="round"/>' +
+    '</g>';
+}
+function girlSymbol(dress) {
+  return girlSVG(1)
+    .replace("DRESSD", shade(dress)).replace("DRESS", dress)
+    .replace("DRESSD", shade(dress)).replace("DRESS", dress);
+}
+function boySymbol(shirt) {
+  return boySVG(1)
+    .replace("SHIRTD", shade(shirt)).replace("SHIRT", shirt)
+    .replace("SHIRTD", shade(shirt)).replace("SHIRT", shirt);
+}
+function shade(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, (n >> 16) - 40), g = Math.max(0, ((n >> 8) & 255) - 40), b = Math.max(0, (n & 255) - 40);
+  return "#" + ((r << 16) | (g << 8) | b).toString(16).padStart(6, "0");
+}
+
+/* ---------- stav hry ---------- */
+let g1, b1, g2, b2;          // počty cestujúcich
+let c1, c2;                  // farby vagónikov
+let girlColor, boyColor;     // jednotná farba dievčat / chlapcov v oboch vagónikoch
+let sticks = {};             // key -> počet paličiek
+let state = "filling";       // filling | error | repair | success
+let wrongSet = new Set();    // nesprávne polia pri oprave
+let timerId = null;
+
+const elSentence = document.getElementById("sentence");
+const elTrain = document.getElementById("train");
+const elTab = document.getElementById("tab");
+const elSmiley = document.getElementById("smiley");
+const btnMain = document.getElementById("btn-main");
+
+function ri(max) { return Math.floor(Math.random() * max); }
+function shuffle(a) {
+  const r = a.slice();
+  for (let i = r.length - 1; i > 0; i--) { const j = ri(i + 1); [r[i], r[j]] = [r[j], r[i]]; }
+  return r;
+}
+function expected() {
+  return { g1: g1, g2: g2, gS: g1 + g2, b1: b1, b2: b2, bS: b1 + b2, s1: g1 + b1, s2: g2 + b2 };
+}
+
+function genPassengers() {
+  const T = 4 + ri(7); // 4..10
+  g1 = 1 + ri(T - 3);
+  b1 = 1 + ri(T - g1 - 2);
+  const g2max = T - g1 - b1 - 1;
+  g2 = 1 + ri(g2max);
+  b2 = T - g1 - b1 - g2;
+}
+
+function buildTrain() {
+  // lokomotíva + 2 vagóniky, viewBox 0 0 1060 320
+  const w1 = [];
+  const w2 = [];
+  const girls1 = Array(g1).fill("g"), boys1 = Array(b1).fill("b");
+  const girls2 = Array(g2).fill("g"), boys2 = Array(b2).fill("b");
+  const wag1 = shuffle(girls1.concat(boys1));
+  const wag2 = shuffle(girls2.concat(boys2));
+
+  function wagonFigures(list, x0) {
+    // max 4 na rad, dve rady
+    const perRow = 4;
+    const rows = [];
+    for (let i = 0; i < list.length; i += perRow) rows.push(list.slice(i, i + perRow));
+    let out = "";
+    rows.forEach(function (row, ri2) {
+      const yOff = rows.length === 1 ? 95 : (ri2 === 0 ? 80 : 150);
+      const n = row.length;
+      row.forEach(function (kind, i) {
+        const x = x0 + 40 + (i + 0.5) * (280 / Math.max(n, 1)) + (ri2 === 0 ? 0 : 14);
+        const sc = 0.72;
+        const body = kind === "g"
+          ? girlSVG(sc).replace(/DRESSD/g, shade(girlColor)).replace(/DRESS/g, girlColor)
+          : boySVG(sc).replace(/SHIRTD/g, shade(boyColor)).replace(/SHIRT/g, boyColor);
+        out += '<g transform="translate(' + (x - 32 * sc).toFixed(1) + ',' + yOff + ')">' + body + "</g>";
+      });
+    });
+    return out;
+  }
+
+  function wagonSVG(x, color, figs) {
+    return '<g>' +
+      '<rect x="' + (x + 6) + '" y="238" width="12" height="14" fill="#566573"/>' +
+      '<rect x="' + x + '" y="58" width="360" height="184" rx="10" fill="' + color + '" stroke="#1e3a5f" stroke-width="5"/>' +
+      '<rect x="' + (x + 16) + '" y="76" width="328" height="150" rx="6" fill="#fbfdfe" stroke="#b8cdd9" stroke-width="3"/>' +
+      figs +
+      '<circle cx="' + (x + 80) + '" cy="256" r="22" fill="#37474f" stroke="#1e3a5f" stroke-width="4"/>' +
+      '<circle cx="' + (x + 80) + '" cy="256" r="8" fill="#cfd8dc"/>' +
+      '<circle cx="' + (x + 280) + '" cy="256" r="22" fill="#37474f" stroke="#1e3a5f" stroke-width="4"/>' +
+      '<circle cx="' + (x + 280) + '" cy="256" r="8" fill="#cfd8dc"/>' +
+      "</g>";
+  }
+
+  const loco =
+    '<g>' +
+    '<circle cx="150" cy="30" r="14" fill="#cfd8dc"/><circle cx="185" cy="18" r="18" fill="#cfd8dc"/><circle cx="228" cy="10" r="22" fill="#e0e5e6"/>' +
+    '<rect x="96" y="46" width="20" height="42" rx="4" fill="#37474f"/>' +
+    '<rect x="52" y="84" width="200" height="96" rx="14" fill="#f2d43d" stroke="#1e3a5f" stroke-width="5"/>' +
+    '<rect x="150" y="52" width="102" height="128" rx="10" fill="#e05252" stroke="#1e3a5f" stroke-width="5"/>' +
+    '<rect x="166" y="66" width="70" height="52" rx="6" fill="#dfeaf2" stroke="#1e3a5f" stroke-width="4"/>' +
+    '<polygon points="52,96 20,180 52,180" fill="#e05252" stroke="#1e3a5f" stroke-width="4"/>' +
+    '<rect x="252" y="150" width="24" height="14" fill="#566573"/>' +
+    '<circle cx="96" cy="238" r="26" fill="#37474f" stroke="#1e3a5f" stroke-width="4"/><circle cx="96" cy="238" r="9" fill="#cfd8dc"/>' +
+    '<circle cx="200" cy="240" r="22" fill="#37474f" stroke="#1e3a5f" stroke-width="4"/><circle cx="200" cy="240" r="8" fill="#cfd8dc"/>' +
+    "</g>";
+
+  elTrain.innerHTML =
+    '<svg viewBox="0 0 1060 300">' +
+    '<rect x="10" y="278" width="1040" height="8" rx="4" fill="#90a4ae"/>' +
+    loco +
+    wagonSVG(286, c1, wagonFigures(wag1, 286)) +
+    wagonSVG(676, c2, wagonFigures(wag2, 676)) +
+    "</svg>";
+
+  elSentence.textContent = "Teraz cestujeme z KOŠÍC do " + DESTS[ri(DESTS.length)] + ".";
+}
+
+/* ---------- tabuľka ---------- */
+function buildTable() {
+  elTab.innerHTML = "";
+  const tr1 = document.createElement("tr");
+  tr1.innerHTML =
+    '<td class="corner"></td>' +
+    '<th class="wagcolor" style="background:' + c1 + '"></th>' +
+    '<th class="wagcolor" style="background:' + c2 + '"></th>' +
+    '<th class="letterS">S</th>';
+  elTab.appendChild(tr1);
+
+  const trG = document.createElement("tr");
+  trG.innerHTML =
+    '<td class="sym"><svg viewBox="0 0 64 100">' + girlSymbol(girlColor) + "</svg></td>" +
+    cellHTML("g1") + cellHTML("g2") + cellHTML("gS");
+  elTab.appendChild(trG);
+
+  const trB = document.createElement("tr");
+  trB.innerHTML =
+    '<td class="sym"><svg viewBox="0 0 64 100">' + boySymbol(boyColor) + "</svg></td>" +
+    cellHTML("b1") + cellHTML("b2") + cellHTML("bS");
+  elTab.appendChild(trB);
+
+  const trS = document.createElement("tr");
+  trS.innerHTML =
+    '<td class="letterS">S</td>' + cellHTML("s1") + cellHTML("s2") + '<td class="corner"></td>';
+  elTab.appendChild(trS);
+
+  KEY_ORDER.forEach(function (k) {
+    const cell = elTab.querySelector('[data-key="' + k + '"]');
+    cell.addEventListener("click", function () { onCellClick(k, cell); });
+  });
+}
+
+function cellHTML(key) {
+  return '<td class="cell" data-key="' + key + '"><div class="sticks"></div></td>';
+}
+
+function renderSticks() {
+  KEY_ORDER.forEach(function (k) {
+    const cell = elTab.querySelector('[data-key="' + k + '"]');
+    const holder = cell.querySelector(".sticks");
+    holder.innerHTML = "";
+    for (let i = 0; i < sticks[k]; i++) {
+      const s = document.createElement("div");
+      s.className = "stick";
+      holder.appendChild(s);
+    }
+  });
+}
+
+function setCellStates() {
+  const exp = expected();
+  KEY_ORDER.forEach(function (k) {
+    const cell = elTab.querySelector('[data-key="' + k + '"]');
+    cell.classList.toggle("wrong", wrongSet.has(k));
+    const locked = state === "error" || state === "success" ||
+      (state === "repair" && !wrongSet.has(k));
+    cell.classList.toggle("locked", locked);
+  });
+}
+
+function canEdit(key) {
+  if (state === "filling") return true;
+  if (state === "repair" && wrongSet.has(key)) return true;
+  return false;
+}
+
+/* jednoduché / dvojité ťuknutie */
+function onCellClick(key, cell) {
+  if (!canEdit(key)) return;
+  const now = Date.now();
+  if (now - (cell._lastTap || 0) < 350) {
+    clearTimeout(cell._timer);
+    cell._lastTap = 0;
+    sticks[key] = 0;
+    renderSticks();
+    return;
+  }
+  cell._lastTap = now;
+  clearTimeout(cell._timer);
+  cell._timer = setTimeout(function () {
+    if (!canEdit(key)) return;
+    if (sticks[key] < 10) {
+      sticks[key]++;
+      renderSticks();
+      afterStickAdded();
+    }
+  }, 270);
+}
+
+function afterStickAdded() {
+  if (state !== "repair") return;
+  const allFilled = Array.from(wrongSet).every(function (k) { return sticks[k] >= 1; });
+  if (allFilled) {
+    state = "filling";
+    wrongSet = new Set();
+    setCellStates();
+    btnMain.textContent = "ŠŤASTNÚ CESTU";
+    btnMain.disabled = false;
+  }
+}
+
+function showSmiley(kind) {
+  elSmiley.innerHTML = kind === "happy" ? SMILE_HAPPY : SMILE_SAD;
+  elSmiley.style.display = "block";
+}
+function hideSmiley() { elSmiley.style.display = "none"; }
+
+btnMain.addEventListener("click", function () {
+  if (state === "filling") {
+    const exp = expected();
+    wrongSet = new Set();
+    KEY_ORDER.forEach(function (k) {
+      if (sticks[k] !== exp[k]) wrongSet.add(k);
+    });
+
+    if (wrongSet.size === 0) {
+      state = "success";
+      setCellStates();
+      showSmiley("happy");
+      btnMain.disabled = true;
+      clearTimeout(timerId);
+      timerId = setTimeout(newTrain, 5000);
+      return;
+    }
+
+    state = "error";
+    setCellStates();
+    showSmiley("sad");
+    btnMain.disabled = true;
+    clearTimeout(timerId);
+    timerId = setTimeout(function () {
+      hideSmiley();
+      state = "repair";
+      setCellStates();
+      btnMain.textContent = "KONTROLA CESTUJÚCICH !";
+      btnMain.disabled = false;
+    }, 3000);
+    return;
+  }
+
+  if (state === "repair") {
+    wrongSet.forEach(function (k) { sticks[k] = 0; });
+    renderSticks();
+    setCellStates();
+  }
+});
+
+function newTrain() {
+  clearTimeout(timerId);
+  let a = ri(WAGON_COLORS.length), b = ri(WAGON_COLORS.length);
+  while (b === a) b = ri(WAGON_COLORS.length);
+  c1 = WAGON_COLORS[a]; c2 = WAGON_COLORS[b];
+  girlColor = GIRL_DRESS[ri(GIRL_DRESS.length)];
+  boyColor = BOY_SHIRT[ri(BOY_SHIRT.length)];
+  genPassengers();
+  sticks = {};
+  KEY_ORDER.forEach(function (k) { sticks[k] = 0; });
+  wrongSet = new Set();
+  state = "filling";
+  hideSmiley();
+  btnMain.textContent = "ŠŤASTNÚ CESTU";
+  btnMain.disabled = false;
+  buildTrain();
+  buildTable();
+  renderSticks();
+  setCellStates();
+}
+
+newTrain();
+</script>
+</body>
+</html>
